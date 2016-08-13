@@ -2,6 +2,8 @@
 
 int keyboardTimeout = 0;
 int countdownTimeout = 30;
+int gravityTimeout = 100;
+int ignorePaddle = 0;
 
 void initWindow() { //values that stay static as soon as window size is known
 	window.globalW = screen_width();
@@ -12,12 +14,15 @@ void initWindow() { //values that stay static as soon as window size is known
 	window.gameH = window.globalH - 5;
 	window.statusX = 1;
 	window.statusY = 1;
-	//All in game cartesian system
+	
+	//All in game cartesian system from here relative to gameX gameY
 	
 	window.paddleH = window.gameH < 21 ? 
 		floor(window.gameH / 2) : 7;
-	window.singularityX = round((window.gameW - 1) / 2);
-	window.singularityY = round((window.gameH - 1) / 2);
+	window.gravityX = round((window.gameW + 1) / 2 - 1);
+	window.gravityY = round((window.gameH + 1) / 2 - 1);
+	
+	window.spawnV = magnitude(window.gameH, window.gameW) / 300.0;
 	
 	//excesses of 100 to deal with overshoot conditions. 	
 	topWall = (struct Hitbox){window.gameX - 100, window.gameY - 100, window.gameW + 100, -1};
@@ -30,8 +35,9 @@ void initWindow() { //values that stay static as soon as window size is known
 
 void initGame(bool preserveStats) { //values to be reset upon round start. 
 	countdownTimeout = 30;
+	gravityTimeout = 100;
 
-	userPaddle.y = round((window.gameH - 1 - window.paddleH) / 2);
+	userPaddle.y = round((window.gameH - window.paddleH) / 2);
 	userPaddle.x = 2;	
 	userPaddle.v = 0;
 	
@@ -42,10 +48,10 @@ void initGame(bool preserveStats) { //values to be reset upon round start.
 	float halfRandMax = RAND_MAX / 2.0;
 	float randDec = (rand() - halfRandMax) / halfRandMax;
 	
-	float v = 0.5;
+	float v = window.spawnV;
 	
-	ball.x = (window.gameW - 1) / 2;
-	ball.y = (window.gameH - 1) / 2;
+	ball.x = round((window.gameW + 1) / 2 - 1);
+	ball.y = round((window.gameH + 1) / 2 - 1);
 	
 	//root2inv*v is max value of dy (at 45deg)
 	ball.dy = randDec * v * ROOT2INV;
@@ -53,7 +59,7 @@ void initGame(bool preserveStats) { //values to be reset upon round start.
 	
 	if (!preserveStats) {
 		stats.score = 0;
-		stats.lives = 3;
+		stats.lives = 3; 
 	}
 }
 	
@@ -104,11 +110,54 @@ void stepGame() {
 			
 		} else {
 			keyboardTimeout--;
+		}	
+		if (gameStatus == LEVEL3) {
+			if (gravityTimeout > 0) {
+				gravityTimeout--;
+			} else {
+				
+				float aGravity = window.spawnV / 3;
+				float yDist = window.gravityY - ball.y;
+				float xDist = window.gravityX - ball.x;
+				
+				float dist = magnitude(yDist, xDist);
+				//limit r2 to avoid black hole effect
+				float r2 = dist*dist < 1 ? 1 : dist*dist; 
+				float accel = aGravity / (dist < 1 ? 1 : dist); 
+				
+				float aY = accel * (yDist / dist);
+				float aX = accel * (xDist / dist);
+				
+				float newDx = ball.dx + aX;
+				float newDy = ball.dy + aY;
+				float newV = magnitude(newDx, newDy);
+				
+				if (newV > 1) {
+					newDy = newDy / newV;
+					newDx = newDx / newV;
+				}
+				//allows reflections but orbit is impossible
+				//since outside of a small radius a 0.6unit/s2 decelleration
+				//is close to impossible. 
+				if (newDx * ball.dx < 0 || fabs(newDx) < 0.3) {
+					newDy = ball.dy;
+					newDx = ball.dx;
+				}
+				
+				// if (fabs(newDy / newV) > ROOT2INV &&
+					// fabs(aY / aX) > ROOT2INV &&
+					// aY * newDy > 0) { //limit to about 45deg from horiz
+					// newDy = ball.dy;	
+				// }
+				
+				ball.dy = newDy;
+				ball.dx = newDx;
+			}
 		}
-		
 		//move ball 
 		float newBallX = ball.x + ball.dx;
 		float newBallY = ball.y + ball.dy;
+		
 		
 		struct Hitbox paddleHb = (struct Hitbox){userPaddle.x, userPaddle.y, 
 			userPaddle.x, userPaddle.y + window.paddleH - 1};
@@ -116,23 +165,29 @@ void stepGame() {
 		struct Hitbox botHb = (struct Hitbox){botPaddle.x, botPaddle.y,
 			botPaddle.x, botPaddle.y + window.paddleH - 1};
 			
+		bool ignorePaddleSet = false;
 		
 		if (isColliding(topWall, ball) ||
 				isColliding(bottomWall, ball)) {
 			ball.dy = -1 * ball.dy;
 		} else if (isColliding(rightWall, ball)) {
 			ball.dx = -1 * ball.dx;
-		} else if (isColliding(paddleHb, ball)) {
+		} else if (isColliding(paddleHb, ball) && !(ignorePaddle > 0)) {
 			stats.score++;
-			//hits the bottom moving upward
+			//hits the bottom moving upward and from below the paddle
 			if (ball.dy < 0 && paddleHb.y2 <= (window.gameH - 3) && ball.y > paddleHb.y2) {
 				ball.dy = -1 * ball.dy;
-			//hits the top moving downward
+				ignorePaddleSet = true;
+			//hits the top moving downward and from above the paddle
 			} else if (ball.dy > 0 && paddleHb.y1 >= 2 && ball.y < paddleHb.y1) {
 				ball.dy = -1 * ball.dy;
+				ignorePaddleSet = true;
 			} else {
 				ball.dx = -1 * ball.dx;
 			}
+			ignorePaddle = 3; //there should be no cirumstance where the ball
+			//collides for more than one tick. so ignore for a short while. 
+			//solves ball sticking due to endpoint rules. 
 		} else if (isColliding(leftWall, ball)) {
 			if (--stats.lives < 0) {
 				gameStatus = OVER;
@@ -146,8 +201,12 @@ void stepGame() {
 			ball.y = newBallY;
 		}
 		
+		if (ignorePaddle && !ignorePaddleSet) {
+			ignorePaddle -= 1;
+		}
+		
 		if (gameStatus >= LEVEL2) {
-			int newBotY = ball.y - 3;
+			int newBotY = ball.y - round((window.paddleH - 1) / 2);
 			int maxBotY = window.gameH - window.paddleH;
 			if (newBotY >= 0 && newBotY <= maxBotY) {
 				botPaddle.y = newBotY;
@@ -198,6 +257,10 @@ void drawStatus() {
 	}
 }
 
+void drawGravity() {
+	if (gravityTimeout <= 0) draw_char(window.gravityX + window.gameX, window.gravityY + window.gameY, '~');
+}
+
 void showHelp() {
 	draw_string(window.gameX, window.gameY, "Shravan Lal, n9286675");
 	draw_string(window.gameX, window.gameY + 1, "Move Paddle: Up and Down Arrow Keys");
@@ -223,6 +286,7 @@ void drawGame() { //after step, draw the arena
 	switch (gameStatus) {
 	case LEVEL4:
 	case LEVEL3: 
+		drawGravity();
 	case LEVEL2: 
 	case LEVEL1: 
 		drawPaddles();
@@ -242,6 +306,10 @@ void nextLevel() {
 	gameStatus++;
 	if (gameStatus > LEVEL4 || gameStatus < LEVEL1) gameStatus = LEVEL1;
 	initGame(false);
+}
+
+float magnitude(float x, float y) {
+	return sqrt(x*x + y*y);
 }
 
 

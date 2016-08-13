@@ -22,9 +22,11 @@ struct {
 	int gameW;
 	int gameH;
 	int paddleH;
-	int singularityX;
-	int singularityY;
+	int gravityX;
+	int gravityY;
+	float spawnV;
 } window;
+
 
 struct {
 	int x;
@@ -55,6 +57,8 @@ enum {HELP, OVER, LEVEL1, LEVEL2, LEVEL3, LEVEL4} gameStatus;
 
 int keyboardTimeout;
 int countdownTimeout;
+int gravityTimeout;
+int ignorePaddle;
 
 void initWindow();
 void handleKey(char c);
@@ -67,15 +71,13 @@ void drawBorder();
 void drawStatus();
 void drawPaddles();
 void drawBall();
+void drawRails();
+void drawGravity();
 
 void showHelp();
 void showOver();
-
-// bool isColliding(struct Hitbox hb, float x, float y);
-// bool isIntersecting(int hX, int hY, float x, float y);
+float magnitude(float x, float y);
 bool isColliding(struct Hitbox hb, struct Projectile vec);
 bool isIntersecting(struct Hitbox hb, float x, float y);
-
-//void stepPositions();
 
 #endif
