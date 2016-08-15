@@ -16,10 +16,12 @@ void setup(void) {
 
 // Play one turn of game.
 void process(void) {
-	char c = get_char();
+	int c = get_char();
 	handleKey(c);
-	stepGame();
-	drawGame();
+	if (!game_over) {
+		stepGame();
+		drawGame();
+	}
 }
 
 
@@ -30,6 +32,8 @@ void cleanup(void) {
 
 // Program entry point.
 int main(void) {
+	signal(SIGINT, quitGame); //clean up resources
+	
 	setup_screen();
 	setup();
 	show_screen();
